@@ -151,6 +151,52 @@ The rest were real gaps, fixed as follows:
   full register/login/create-note flow succeeds when the token is scraped out of the form
   first, the way a real browser submission would.
 
+That still didn't clear the job. The third run turned up four more findings, each one
+closing a loose end the previous fixes had left:
+
+```
+WARN-NEW: User Controllable HTML Element Attribute (Potential XSS) [10031] x1
+WARN-NEW: Non-Storable Content [10049] x5
+WARN-NEW: CSP: Failure to Define Directive with No Fallback [10055] x5
+WARN-NEW: Cross-Origin-Resource-Policy Header Missing or Invalid [90004] x4
+FAIL-NEW: 0    WARN-NEW: 4    INFO: 0    IGNORE: 2    PASS: 61
+```
+
+(`IGNORE: 2` here confirms the `.zap/rules.tsv` suppression from the previous fix is
+working, and `90004` shows up a third time for the same reason it showed up twice
+before: that one ZAP rule checks three separate headers together, Cross-Origin-Embedder-
+Policy, Cross-Origin-Opener-Policy, and Cross-Origin-Resource-Policy, and reports whichever
+one is still missing.)
+
+Two of these needed a real header fix:
+
+- `10055`: per the CSP spec, `frame-ancestors`, `object-src`, and `base-uri` don't fall
+  back to `default-src` the way most fetch directives do, so a bare `default-src 'self'`
+  leaves them unset. The policy now lists all four directives explicitly.
+- `90004`: added `Cross-Origin-Resource-Policy: same-origin` alongside the other two.
+
+The other two turned out not to be real findings, which is a distinction worth making
+explicit rather than fixing blindly:
+
+- `10049` (Non-Storable Content) sounds like a problem but isn't one here. Reading ZAP's
+  own rule description: it flags responses that *aren't* cacheable and suggests adding
+  cache headers to *improve performance*, on the assumption most content benefits from
+  caching. This app already sends `Cache-Control: no-store` on purpose, since every
+  response is private, per-user data; making it cacheable to satisfy this rule would be
+  the wrong tradeoff, not a fix. Suppressed with a comment explaining why.
+- `10031` (User Controllable HTML Element Attribute) is genuinely informational, ZAP's
+  own docs call it a "hot spot requiring human review," not a confirmed issue. I checked
+  by hand: no template in this app reflects a query parameter or any other request input
+  into an HTML attribute (verified by requesting `/login?username=test` and inspecting
+  the rendered output). The only dynamic attribute value on that page is the CSRF token,
+  which is server-generated and signed, not something an attacker controls. Suppressed
+  with the reasoning recorded in `.zap/rules.tsv` rather than left unexplained.
+
+This is the actual shape of tuning a DAST tool for a real pipeline: some findings need a
+code fix, and some need a documented, reviewed decision that they don't apply, recorded
+in the rules file so the next person (or the next run) doesn't have to re-litigate it
+from scratch.
+
 ## Why three tools instead of one
 
 Each layer has a different blind spot: SAST reads source but can't see missing

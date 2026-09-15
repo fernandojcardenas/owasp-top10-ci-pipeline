@@ -46,13 +46,19 @@ def create_app():
         # gap a live scan finds and a source-code scanner can't. See docs/ci-pipeline.md.
         response.headers["X-Frame-Options"] = "DENY"  # ZAP 10020
         response.headers["X-Content-Type-Options"] = "nosniff"  # ZAP 10021
-        response.headers["Content-Security-Policy"] = "default-src 'self'"  # ZAP 10038
+        # ZAP 10038 + 10055: frame-ancestors, object-src, and base-uri don't fall back to
+        # default-src per the CSP spec, so they're listed explicitly rather than assumed.
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+        )
         response.headers["Permissions-Policy"] = (
             "geolocation=(), camera=(), microphone=()"
         )  # ZAP 10063
-        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"  # ZAP 90004
-        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"  # ZAP 90004
-        response.headers["Cache-Control"] = "no-store"  # ZAP 10049, this app is all private data
+        # ZAP 90004 (Insufficient Site Isolation Against Spectre) checks for all three of these.
+        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+        response.headers["Cache-Control"] = "no-store"  # this app is all private, per-user data
         response.headers["Server"] = "Werkzeug"  # ZAP 10036: don't leak the exact version
         return response
 

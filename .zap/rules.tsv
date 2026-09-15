@@ -1,2 +1,4 @@
 10111	IGNORE	(Authentication Request Identified - informational marker, not a finding: ZAP noting that /login looks like an auth endpoint)
 10112	IGNORE	(Session Management Response Identified - informational marker, not a finding: ZAP noting that a response sets a session cookie)
+10049	IGNORE	(Non-Storable Content - this app intentionally sends Cache-Control: no-store on every response since all content is private, per-user data; the rule is a performance hint about cacheability, not a vulnerability, and caching this content would be the wrong tradeoff)
+10031	IGNORE	(User Controllable HTML Element Attribute (Potential XSS) - manually reviewed: no request parameter or user input is reflected into any HTML attribute in this app's templates, verified by testing /login with query parameters and inspecting the rendered output; the only dynamic attribute value is the CSRF token, which is server-generated and signed, not attacker-controllable)
