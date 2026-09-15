@@ -78,6 +78,38 @@ reading source, and needs no knowledge of what the code looks like. It runs last
 (`needs: [sast, sca]`) since there's no point spinning up the app if the static checks
 already failed.
 
+The first real run of this pipeline on GitHub caught something neither Bandit nor
+Semgrep did, since neither one looks at HTTP responses at all:
+
+```
+WARN-NEW: Missing Anti-Clickjacking Header [10020] x4
+WARN-NEW: X-Content-Type-Options Header Missing [10021] x4
+WARN-NEW: Server Leaks Version Information via "Server" HTTP Response Header Field [10036] x5
+WARN-NEW: Cross-Origin-Embedder-Policy Header Missing or Invalid [90004] x9
+FAIL-NEW: 0    WARN-NEW: 11    PASS: 56
+```
+
+None of the seeded OWASP bugs themselves triggered anything, which is a live confirmation
+that the fixes in `docs/vulnerabilities/` hold up under an actual scan of the running
+app, not just against the specific exploit commands I used. But the app also wasn't
+setting any hardening headers at all. The fix, in `app/__init__.py`, is an
+`after_request` hook that sets `X-Frame-Options`, `X-Content-Type-Options`, and
+`Cross-Origin-Embedder-Policy`. The "Server" header needed a second fix: Werkzeug's
+development server adds its own version banner at the socket level regardless of what
+the Flask app sets in its response, so `run.py` also overrides
+`WSGIRequestHandler.version_string()` to stop the interpreter and framework version from
+being broadcast on every response. (In a real deployment behind gunicorn or a reverse
+proxy this particular quirk wouldn't come up the same way, since neither adds an
+unconditional version banner the app can't override, but this app runs its own dev
+server in CI, so it needed the explicit fix.)
+
+The first CI run also failed for an unrelated reason: `zaproxy/action-baseline`
+tries to file a GitHub issue with its findings by default, which needs `issues: write`
+permission that the default workflow token doesn't have, so that step 403'd separately
+from the actual scan result. Fixed by setting `allow_issue_writing: false`; the job's
+pass/fail status and the log output are the signal this pipeline actually relies on, not
+an auto-filed issue on every run.
+
 ## Why three tools instead of one
 
 Each layer has a different blind spot: SAST reads source but can't see missing

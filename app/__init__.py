@@ -26,4 +26,15 @@ def create_app():
 
     app.register_blueprint(bp)
 
+    @app.after_request
+    def set_security_headers(response):
+        # FIX: caught by the DAST stage (OWASP ZAP baseline scan), not by SAST or SCA, which
+        # is exactly the kind of gap a live scan of the running app finds and a source-code
+        # scanner can't. See docs/ci-pipeline.md.
+        response.headers["X-Frame-Options"] = "DENY"  # ZAP 10020: Missing Anti-clickjacking Header
+        response.headers["X-Content-Type-Options"] = "nosniff"  # ZAP 10021
+        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"  # ZAP 90004
+        response.headers["Server"] = "Werkzeug"  # ZAP 10036: don't leak the exact version
+        return response
+
     return app

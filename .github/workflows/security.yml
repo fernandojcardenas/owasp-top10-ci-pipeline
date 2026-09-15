@@ -71,6 +71,7 @@ jobs:
         with:
           target: "http://localhost:5000/login"
           fail_action: true
+          allow_issue_writing: false
 
       - name: Show app log on failure
         if: failure()
