@@ -8,6 +8,8 @@ SAST, SCA, and DAST. All three block a pull request from merging if they fail.
 Bandit catches three of this app's seven seeded bugs out of the box. Run against the
 vulnerable v1 code:
 
+![Bandit run against the v1 baseline, showing all three real findings](exploit-screenshots/01-bandit-v1-findings.png)
+
 ```
 $ bandit -r . -x ./venv
 >> B105 hardcoded_password_string   app/__init__.py:5   (the SECRET_KEY literal)
@@ -52,6 +54,14 @@ ever see:
   expression like `note["content"] | safe` and a plain regex turned out to be the more
   reliable tool for this one file type.
 
+Here are all five custom rules actually firing against the v1 baseline, one per gap:
+
+![Semgrep run against the v1 baseline, all five custom rules firing](exploit-screenshots/02-semgrep-v1-findings.png)
+
+And both tools against the fixed code, for comparison:
+
+![Bandit and Semgrep against the fixed default branch, zero findings from either](exploit-screenshots/03-sast-fixed-clean.png)
+
 Bandit and Semgrep together catch five of the seven seeded bugs. The remaining two
 (IDOR, plaintext passwords) are exactly the kind of thing SAST structurally can't see:
 missing authorization logic and a missing security control, not a dangerous pattern that
@@ -66,6 +76,10 @@ Packaging Advisory Database. Run against v1's pins it found 12 distinct advisori
 across Flask and Werkzeug, only one of which I'd gone in already knowing about; see
 `docs/vulnerabilities/06-outdated-werkzeug-cve.md` for the full output and the versions
 that clear it.
+
+![pip-audit against v1's pins, 22 known vulnerabilities across Flask and Werkzeug](exploit-screenshots/04-pip-audit-v1-findings.png)
+
+![pip-audit against the fixed pins, no known vulnerabilities](exploit-screenshots/05-pip-audit-fixed-clean.png)
 
 ## DAST: OWASP ZAP baseline scan
 
@@ -84,12 +98,25 @@ run history from GitHub Actions, not a curated retelling:
 ![CI pipeline run history, showing four failing runs followed by two passing runs](ci-screenshots/01-pipeline-run-history.jpg)
 
 The first real run of this pipeline on GitHub caught something neither Bandit nor
-Semgrep did, since neither one looks at HTTP responses at all:
+Semgrep did, since neither one looks at HTTP responses at all. And it caught all of it in
+one scan, not gradually: eleven distinct alert types, reported together in a single run.
+Here's that run failing, and the raw ZAP log behind it:
+
+![Run 1 job summary: SAST and SCA green, DAST red, with the issue-writing and ZAP failure annotations](ci-screenshots/02-run1-failure-summary.jpg)
+
+![ZAP baseline scan log for run 1, listing all eleven WARN-NEW alert types found in a single scan](ci-screenshots/03-run1-zap-findings.jpg)
 
 ```
 WARN-NEW: Missing Anti-Clickjacking Header [10020] x4
 WARN-NEW: X-Content-Type-Options Header Missing [10021] x4
 WARN-NEW: Server Leaks Version Information via "Server" HTTP Response Header Field [10036] x5
+WARN-NEW: Content Security Policy (CSP) Header Not Set [10038] x5
+WARN-NEW: Non-Storable Content [10049] x7
+WARN-NEW: Cookie without SameSite Attribute [10054] x1
+WARN-NEW: Permissions Policy Header Not Set [10063] x5
+WARN-NEW: Authentication Request Identified [10111] x1
+WARN-NEW: Session Management Response Identified [10112] x1
+WARN-NEW: Absence of Anti-CSRF Tokens [10202] x4
 WARN-NEW: Cross-Origin-Embedder-Policy Header Missing or Invalid [90004] x9
 FAIL-NEW: 0    WARN-NEW: 11    PASS: 56
 ```
@@ -97,16 +124,7 @@ FAIL-NEW: 0    WARN-NEW: 11    PASS: 56
 None of the seeded OWASP bugs themselves triggered anything, which is a live confirmation
 that the fixes in `docs/vulnerabilities/` hold up under an actual scan of the running
 app, not just against the specific exploit commands I used. But the app also wasn't
-setting any hardening headers at all. The fix, in `app/__init__.py`, is an
-`after_request` hook that sets `X-Frame-Options`, `X-Content-Type-Options`, and
-`Cross-Origin-Embedder-Policy`. The "Server" header needed a second fix: Werkzeug's
-development server adds its own version banner at the socket level regardless of what
-the Flask app sets in its response, so `run.py` also overrides
-`WSGIRequestHandler.version_string()` to stop the interpreter and framework version from
-being broadcast on every response. (In a real deployment behind gunicorn or a reverse
-proxy this particular quirk wouldn't come up the same way, since neither adds an
-unconditional version banner the app can't override, but this app runs its own dev
-server in CI, so it needed the explicit fix.)
+setting any hardening headers at all, and had no CSRF or cookie protection either.
 
 The first CI run also failed for an unrelated reason: `zaproxy/action-baseline`
 tries to file a GitHub issue with its findings by default, which needs `issues: write`
@@ -115,9 +133,25 @@ from the actual scan result. Fixed by setting `allow_issue_writing: false`; the 
 pass/fail status and the log output are the signal this pipeline actually relies on, not
 an auto-filed issue on every run.
 
-Fixing those four headers didn't clear the job, it just uncovered the next layer: ZAP
-re-crawled the now-hardened responses and surfaced eight more findings that were sitting
-behind the noise of the first batch:
+I fixed these eleven in two commits rather than one, closing the basic response-hardening
+gap first and the policy/CSRF gap second. The first commit added an `after_request` hook
+in `app/__init__.py` that sets `X-Frame-Options`, `X-Content-Type-Options`, and
+`Cross-Origin-Embedder-Policy`. The "Server" header needed a second fix on top of that:
+Werkzeug's development server adds its own version banner at the socket level regardless
+of what the Flask app sets in its response, so `run.py` also overrides
+`WSGIRequestHandler.version_string()` to stop the interpreter and framework version from
+being broadcast on every response. (In a real deployment behind gunicorn or a reverse
+proxy this particular quirk wouldn't come up the same way, since neither adds an
+unconditional version banner the app can't override, but this app runs its own dev
+server in CI, so it needed the explicit fix.)
+
+Run 2 confirms exactly what you'd expect: the four headers just fixed are gone from the
+report, and the other seven alert types from run 1's own log are still there, unchanged,
+because nothing had touched them yet:
+
+![Run 2 job summary: still failing, on the next set of findings from the same original scan](ci-screenshots/04-run2-failure-summary.jpg)
+
+![ZAP baseline scan log for run 2, showing the same seven leftover alert types from run 1](ci-screenshots/05-run2-zap-findings.jpg)
 
 ```
 WARN-NEW: Content Security Policy (CSP) Header Not Set [10038] x3
@@ -131,12 +165,18 @@ WARN-NEW: Cross-Origin-Opener-Policy Header Missing or Invalid [90004] x8
 FAIL-NEW: 0    WARN-NEW: 8    PASS: 59
 ```
 
-Two of these aren't findings at all: `10111` and `10112` are ZAP noting "this looks like
-a login endpoint" and "this response sets a session cookie", informational markers with
-no fix to apply. Those are suppressed with `.zap/rules.tsv`
-(`rules_file_name` in the workflow), which is the correct way to tune a DAST tool, telling
-it what you've already reviewed and judged not actionable, rather than either failing the
-build on noise or silently lowering `fail_action` for everything.
+`90004` is the one entry that looks new but isn't a new finding: that single ZAP rule
+checks three separate headers together (Cross-Origin-Embedder-Policy, -Opener-Policy, and
+-Resource-Policy) and reports whichever one is still missing. It fired for the missing
+COEP header in run 1; now that COEP is set, it fires again for the still-missing COOP
+header, same rule ID, different underlying gap.
+
+Two of the seven remaining aren't findings that need fixing at all: `10111` and `10112`
+are ZAP noting "this looks like a login endpoint" and "this response sets a session
+cookie", informational markers with no fix to apply. Those are suppressed with
+`.zap/rules.tsv` (`rules_file_name` in the workflow), which is the correct way to tune a
+DAST tool: telling it what you've already reviewed and judged not actionable, rather than
+either failing the build on noise or silently lowering `fail_action` for everything.
 
 The rest were real gaps, fixed as follows:
 
@@ -156,8 +196,11 @@ The rest were real gaps, fixed as follows:
   full register/login/create-note flow succeeds when the token is scraped out of the form
   first, the way a real browser submission would.
 
-That still didn't clear the job. The third run turned up four more findings, each one
-closing a loose end the previous fixes had left:
+That still didn't clear the job. The third run turned up four findings:
+
+![Run 3 job summary: still failing, three commits in](ci-screenshots/06-run3-failure-summary.jpg)
+
+![ZAP baseline scan log for run 3, showing the CSP fallback finding and one genuinely new alert introduced by the CSRF fix](ci-screenshots/07-run3-zap-findings.jpg)
 
 ```
 WARN-NEW: User Controllable HTML Element Attribute (Potential XSS) [10031] x1
@@ -167,11 +210,17 @@ WARN-NEW: Cross-Origin-Resource-Policy Header Missing or Invalid [90004] x4
 FAIL-NEW: 0    WARN-NEW: 4    INFO: 0    IGNORE: 2    PASS: 61
 ```
 
-(`IGNORE: 2` here confirms the `.zap/rules.tsv` suppression from the previous fix is
-working, and `90004` shows up a third time for the same reason it showed up twice
-before: that one ZAP rule checks three separate headers together, Cross-Origin-Embedder-
-Policy, Cross-Origin-Opener-Policy, and Cross-Origin-Resource-Policy, and reports whichever
-one is still missing.)
+Unlike the run 1 to run 2 transition, this one has a genuinely new entry rather than just
+leftovers: `10031` never appeared in runs 1 or 2 because the thing it's flagging, a
+dynamic value inside an HTML attribute, didn't exist yet. It only showed up because the
+previous commit's own fix, the CSRF hidden input (`value="{{ csrf_token() }}"`), added a
+server-rendered attribute value where there wasn't one before. `10049` and `90004` are
+carried over from run 2 (`10038` is gone because the CSP header now exists at all, which
+is progress even though it isn't fully correct yet). `IGNORE: 2` confirms the
+`.zap/rules.tsv` suppression from the previous fix is working, and `90004` shows up a
+third time for the same reason it showed up twice before: that one ZAP rule checks three
+separate headers together, Cross-Origin-Embedder-Policy, Cross-Origin-Opener-Policy, and
+Cross-Origin-Resource-Policy, and reports whichever one is still missing.
 
 Two of these needed a real header fix:
 
@@ -205,13 +254,13 @@ from scratch.
 Here's that fourth run failing, with the job graph showing SAST and SCA passing while
 DAST fails, plus GitHub's own annotation of the ZAP error:
 
-![Run 4 job summary: SAST and SCA green, DAST red, with the ZAP failure annotation](ci-screenshots/02-run4-failure-summary.jpg)
+![Run 4 job summary: SAST and SCA green, DAST red, with the ZAP failure annotation](ci-screenshots/08-run4-failure-summary.jpg)
 
 And the actual ZAP log for that run, showing the exact finding, `WARN-NEW: CSP: Failure
 to Define Directive with No Fallback [10055] x 3`, and the summary line the job's
 pass/fail decision is based on:
 
-![ZAP baseline scan log showing the WARN-NEW CSP 10055 finding and the fail summary line](ci-screenshots/03-run4-zap-finding.jpg)
+![ZAP baseline scan log showing the WARN-NEW CSP 10055 finding and the fail summary line](ci-screenshots/09-run4-zap-finding.jpg)
 
 Adding `object-src`, `base-uri`, and `frame-ancestors` didn't fully clear rule 10055
 either; it kept firing on a single remaining gap. Reading ZAP's own scan rule source
@@ -222,7 +271,7 @@ nothing else. I had the first but not the second, so the policy now also lists
 
 The very next run, triggered by that one-line fix, came back clean:
 
-![Run 5 job summary: SAST, SCA, and DAST all green](ci-screenshots/04-run5-passing.jpg)
+![Run 5 job summary: SAST, SCA, and DAST all green](ci-screenshots/10-run5-passing.jpg)
 
 ## Why three tools instead of one
 

@@ -41,6 +41,8 @@ for row in conn.execute('SELECT username, password FROM users'):
 
 The password is sitting there in the clear.
 
+![Terminal capture of the plaintext passwords in the v1 users table](../exploit-screenshots/08-plaintext-password-before.png)
+
 ## Fix
 
 Registration now hashes the password with Werkzeug's `generate_password_hash` (salted
@@ -68,8 +70,13 @@ conn.row_factory = sqlite3.Row
 for row in conn.execute('SELECT username, password FROM users WHERE username=\"alice\"'):
     print(dict(row))
 "
-{'username': 'alice', 'password': 'pbkdf2:sha256:260000$dwfnANUaqtDOVpKg$c4acf14b67e555917809e20d96b3c8a34c3495cafe93b2375b2a88fd0a836bc2'}
+{'username': 'alice', 'password': 'scrypt:32768:8:1$AxGsRA5kKSzpOXcN$0c14b71e2dc7491f91c2f50f91cbe404208cc8d3901e2db4568ff0cb29a928e258e618172cb563e5bfba82f919ecae4cb626079d27c91f65eab7cfddf83e0a91'}
 ```
 
+![Terminal capture of the same query against the fixed code: salted scrypt hashes, not raw passwords](../exploit-screenshots/09-plaintext-password-after.png)
+
 Login still works normally for the correct password (verified through the app's own
-register/login flow), but the stored value is now a salted hash.
+register/login flow), but the stored value is now a salted hash. (Werkzeug's
+`generate_password_hash` defaults to scrypt as of the version this app is pinned to;
+older Werkzeug versions default to PBKDF2-SHA256 instead. Either is a real, salted KDF,
+the point of the fix, not the specific algorithm name.)

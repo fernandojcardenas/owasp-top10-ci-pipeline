@@ -35,6 +35,8 @@ $ curl -c bob.txt -b bob.txt http://127.0.0.1:5000/notes/1
 
 Bob, who has never interacted with alice's account, reads her note in full.
 
+![Terminal capture of the IDOR exploit against v1: bob reads alice's note in full](../exploit-screenshots/06-idor-exploit-before.png)
+
 ## Fix
 
 The lookup now takes the requesting user's id and scopes the query to it:
@@ -61,5 +63,7 @@ Repeating the exact same steps on the fixed code:
 $ curl -c bob.txt -b bob.txt http://127.0.0.1:5000/notes/1
 Note not found
 ```
+
+![Terminal capture of the same exploit against the fixed code: 404, no content leaked](../exploit-screenshots/07-idor-exploit-after.png)
 
 HTTP status changed from `200` to `404`, and bob never sees alice's content.
