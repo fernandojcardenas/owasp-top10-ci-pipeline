@@ -197,6 +197,13 @@ code fix, and some need a documented, reviewed decision that they don't apply, r
 in the rules file so the next person (or the next run) doesn't have to re-litigate it
 from scratch.
 
+Adding `object-src`, `base-uri`, and `frame-ancestors` didn't fully clear rule 10055
+either; it kept firing on a single remaining gap. Reading ZAP's own scan rule source
+(`ContentSecurityPolicyScanRule.java`) rather than guessing again: the rule checks
+exactly two directives against this fallback issue, `frame-ancestors` and `form-action`,
+nothing else. I had the first but not the second, so the policy now also lists
+`form-action 'self'`. Fourth run, zero warnings.
+
 ## Why three tools instead of one
 
 Each layer has a different blind spot: SAST reads source but can't see missing

@@ -49,7 +49,7 @@ def create_app():
         # ZAP 10038 + 10055: frame-ancestors, object-src, and base-uri don't fall back to
         # default-src per the CSP spec, so they're listed explicitly rather than assumed.
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+            "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
         )
         response.headers["Permissions-Policy"] = (
             "geolocation=(), camera=(), microphone=()"
