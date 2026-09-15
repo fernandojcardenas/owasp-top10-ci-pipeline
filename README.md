@@ -3,11 +3,12 @@
 A small notes app with user registration, login, and per-user notes, built in three
 passes:
 
-- `master` holds v1, a working app with seven OWASP Top 10 (2021) issues deliberately
-  seeded into it, each marked with a `VULN` comment at the vulnerable line.
-- `hardened` (this branch) fixes every one of them, with a short exploit-and-fix writeup
-  per vulnerability in [`docs/vulnerabilities/`](docs/vulnerabilities/README.md),
-  including real before/after output for each exploit.
+- The [`v1` tag](../../releases/tag/v1) is the original working app with seven OWASP
+  Top 10 (2021) issues deliberately seeded into it, each marked with a `VULN` comment at
+  the vulnerable line.
+- The default branch fixes every one of them, with a short exploit-and-fix writeup per
+  vulnerability in [`docs/vulnerabilities/`](docs/vulnerabilities/README.md), including
+  real before/after output for each exploit.
 - A CI pipeline (`.github/workflows/security.yml`) runs SAST (Bandit plus a small
   project-specific Semgrep ruleset), SCA (`pip-audit`), and DAST (an OWASP ZAP baseline
   scan) on every push and pull request. See

@@ -55,7 +55,7 @@ which also avoids leaking which ids are in use.
 
 ## Verification
 
-Repeating the exact same steps on the hardened branch:
+Repeating the exact same steps on the fixed code:
 
 ```
 $ curl -c bob.txt -b bob.txt http://127.0.0.1:5000/notes/1

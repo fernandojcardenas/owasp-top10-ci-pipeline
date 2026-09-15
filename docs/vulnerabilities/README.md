@@ -1,9 +1,8 @@
 # Vulnerability writeups
 
 Each file here documents one issue seeded into the v1 baseline: what the vulnerability
-was, a reproducible exploit against v1 with real output, the fix applied on the
-`hardened` branch, and a re-run of the same exploit against the fixed code to confirm it
-no longer works.
+was, a reproducible exploit against v1 with real output, the fix applied afterward, and a
+re-run of the same exploit against the fixed code to confirm it no longer works.
 
 | # | Vulnerability | OWASP category |
 |---|---|---|
@@ -15,5 +14,6 @@ no longer works.
 | 6 | [Outdated Werkzeug (CVE-2023-25577)](06-outdated-werkzeug-cve.md) | A06 Vulnerable and Outdated Components |
 | 7 | [Insecure YAML deserialization](07-insecure-yaml-deserialization.md) | A08 Software and Data Integrity Failures |
 
-All of these are fixed as of this branch. The `master` branch still has the vulnerable
-v1 code for anyone who wants to reproduce an exploit against the original version.
+All of these are fixed on the default branch. The [`v1` tag](../../releases/tag/v1)
+still has the original vulnerable code for anyone who wants to reproduce an exploit
+against it.
