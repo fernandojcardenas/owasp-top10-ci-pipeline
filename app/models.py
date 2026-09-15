@@ -1,6 +1,8 @@
 import os
 import sqlite3
 
+from werkzeug.security import check_password_hash, generate_password_hash
+
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "notes.db")
 
 def get_db():
@@ -34,20 +36,33 @@ def init_db():
 
 def create_user(username, password):
     conn = get_db()
-    # VULN (A02:2021 Cryptographic Failures): the password is stored in plaintext. It should be
-    # hashed (e.g. werkzeug.security.generate_password_hash) before it ever touches the database.
-    conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+    # FIX (A02:2021 Cryptographic Failures): the password is hashed with werkzeug's salted
+    # PBKDF2 hash before it ever touches the database, so the database (and any backup or leak
+    # of it) never holds a recoverable password. See docs/vulnerabilities/02-plaintext-passwords.md.
+    password_hash = generate_password_hash(password)
+    conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password_hash))
     conn.commit()
     conn.close()
 
-def find_user_by_credentials(username, password):
+def find_user_by_username(username):
     conn = get_db()
-    # VULN (A03:2021 Injection - SQL Injection): the query is built with an f-string instead of
-    # parameterized placeholders. A username of `' OR '1'='1` bypasses authentication entirely.
-    query = f"SELECT * FROM users WHERE username = '{username}' AND password = '{password}'"
-    row = conn.execute(query).fetchone()
+    # FIX (A03:2021 Injection - SQL Injection): the query uses a parameterized placeholder
+    # instead of string interpolation, so user input can never change the shape of the SQL
+    # statement. See docs/vulnerabilities/03-sql-injection-login.md.
+    row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
     conn.close()
     return row
+
+def verify_credentials(username, password):
+    user = find_user_by_username(username)
+    if user is None:
+        # Run a dummy hash check even when the username doesn't exist, so the response time
+        # doesn't reveal whether a username is registered (a basic timing-safe pattern).
+        check_password_hash(generate_password_hash("dummy"), password)
+        return None
+    if not check_password_hash(user["password"], password):
+        return None
+    return user
 
 def get_user_by_id(user_id):
     conn = get_db()
@@ -70,11 +85,13 @@ def get_notes_for_user(owner_id):
     conn.close()
     return rows
 
-def get_note_by_id(note_id):
+def get_note_for_owner(note_id, owner_id):
     conn = get_db()
-    # VULN (A01:2021 Broken Access Control - IDOR): this lookup never checks that the requesting
-    # user owns the note, so any authenticated user can read any other user's note just by
-    # guessing or incrementing the id in the URL.
-    row = conn.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
+    # FIX (A01:2021 Broken Access Control - IDOR): the lookup is scoped to the requesting
+    # user's own notes, so a user can no longer read another user's note just by guessing or
+    # incrementing the id in the URL. See docs/vulnerabilities/01-idor-note-access.md.
+    row = conn.execute(
+        "SELECT * FROM notes WHERE id = ? AND owner_id = ?", (note_id, owner_id)
+    ).fetchone()
     conn.close()
     return row

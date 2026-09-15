@@ -1,9 +1,12 @@
+import os
+
 from app import create_app
 
 app = create_app()
 
 if __name__ == "__main__":
-    # VULN (A05:2021 Security Misconfiguration): debug mode must never be enabled in production.
-    # It exposes the Werkzeug interactive debugger, which allows arbitrary code execution to
-    # anyone who can trigger an unhandled exception in the running app.
-    app.run(debug=True)
+    # FIX (A05:2021 Security Misconfiguration): debug mode is now off unless FLASK_DEBUG=1 is
+    # explicitly set. This keeps the interactive Werkzeug debugger (arbitrary code execution on
+    # any unhandled exception) from ever being exposed by default.
+    # See docs/vulnerabilities/05-hardcoded-secret-and-debug-mode.md.
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1")

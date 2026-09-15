@@ -27,7 +27,7 @@ def register():
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        user = models.find_user_by_credentials(request.form["username"], request.form["password"])
+        user = models.verify_credentials(request.form["username"], request.form["password"])
         if user:
             session["user_id"] = user["id"]
             return redirect(url_for("main.notes_list"))
@@ -52,9 +52,10 @@ def notes_list():
 
 @bp.route("/notes/<int:note_id>")
 def note_view(note_id):
-    if not current_user():
+    user = current_user()
+    if not user:
         return redirect(url_for("main.login"))
-    note = models.get_note_by_id(note_id)
+    note = models.get_note_for_owner(note_id, user["id"])
     if note is None:
         return "Note not found", 404
     return render_template("note_view.html", note=note)
