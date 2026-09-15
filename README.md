@@ -15,6 +15,16 @@ passes:
   [`docs/ci-pipeline.md`](docs/ci-pipeline.md) for what each stage catches, including
   what it misses and why the other two stages are still needed.
 
+## Screenshots
+
+| Register | Log in |
+|---|---|
+| ![Register page](docs/screenshots/01-register.png) | ![Login page](docs/screenshots/02-login.png) |
+
+| Notes list | Note detail |
+|---|---|
+| ![Notes list](docs/screenshots/03-notes-list.png) | ![Note detail](docs/screenshots/04-note-view.png) |
+
 ## Running it locally
 
 ```

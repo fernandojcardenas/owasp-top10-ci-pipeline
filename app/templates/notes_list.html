@@ -1,14 +1,22 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>{{ user["username"] }}'s notes</h1>
-<p><a href="{{ url_for('main.logout') }}">Log out</a></p>
-<form method="post">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <label>Title <input type="text" name="title"></label><br>
-  <label>Content <textarea name="content"></textarea></label><br>
-  <button type="submit">Add note</button>
-</form>
-<ul>
+<div class="top-bar">
+  <h1>{{ user["username"] }}'s notes</h1>
+  <a href="{{ url_for('main.logout') }}">Log out</a>
+</div>
+<div class="card">
+  <form method="post" class="stacked">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Title
+      <input type="text" name="title">
+    </label>
+    <label>Content
+      <textarea name="content"></textarea>
+    </label>
+    <button type="submit">Add note</button>
+  </form>
+</div>
+<ul class="note-list">
 {% for note in notes %}
   <li><a href="{{ url_for('main.note_view', note_id=note['id']) }}">{{ note["title"] }}</a></li>
 {% endfor %}
