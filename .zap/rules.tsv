@@ -1,0 +1,2 @@
+10111	IGNORE	(Authentication Request Identified - informational marker, not a finding: ZAP noting that /login looks like an auth endpoint)
+10112	IGNORE	(Session Management Response Identified - informational marker, not a finding: ZAP noting that a response sets a session cookie)

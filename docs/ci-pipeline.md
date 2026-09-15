@@ -110,6 +110,47 @@ from the actual scan result. Fixed by setting `allow_issue_writing: false`; the 
 pass/fail status and the log output are the signal this pipeline actually relies on, not
 an auto-filed issue on every run.
 
+Fixing those four headers didn't clear the job, it just uncovered the next layer: ZAP
+re-crawled the now-hardened responses and surfaced eight more findings that were sitting
+behind the noise of the first batch:
+
+```
+WARN-NEW: Content Security Policy (CSP) Header Not Set [10038] x3
+WARN-NEW: Non-Storable Content [10049] x7
+WARN-NEW: Cookie without SameSite Attribute [10054] x1
+WARN-NEW: Permissions Policy Header Not Set [10063] x5
+WARN-NEW: Authentication Request Identified [10111] x1
+WARN-NEW: Session Management Response Identified [10112] x1
+WARN-NEW: Absence of Anti-CSRF Tokens [10202] x4
+WARN-NEW: Cross-Origin-Opener-Policy Header Missing or Invalid [90004] x8
+FAIL-NEW: 0    WARN-NEW: 8    PASS: 59
+```
+
+Two of these aren't findings at all: `10111` and `10112` are ZAP noting "this looks like
+a login endpoint" and "this response sets a session cookie", informational markers with
+no fix to apply. Those are suppressed with `.zap/rules.tsv`
+(`rules_file_name` in the workflow), which is the correct way to tune a DAST tool, telling
+it what you've already reviewed and judged not actionable, rather than either failing the
+build on noise or silently lowering `fail_action` for everything.
+
+The rest were real gaps, fixed as follows:
+
+- `Content-Security-Policy: default-src 'self'` and a `Permissions-Policy` header
+  disabling APIs the app never uses, added in the same `after_request` hook as the first
+  batch.
+- `Cross-Origin-Opener-Policy: same-origin` alongside the `Cross-Origin-Embedder-Policy`
+  from the first pass; the same ZAP rule ID (`90004`) flags either header when it's
+  missing, which is why it showed up twice under one number across two runs.
+- `Cache-Control: no-store` on every response, since this app has no public pages, every
+  response is private per-user data that shouldn't be cached.
+- `SESSION_COOKIE_SAMESITE = "Lax"` in the Flask config, so the session cookie is never
+  attached to a cross-site request in the first place.
+- Anti-CSRF tokens, via Flask-WTF's `CSRFProtect`: every POST form now includes a
+  per-session token, and a POST without a valid one is rejected with 400 before it ever
+  reaches a route. Verified locally: a login POST missing the token returns 400, and the
+  full register/login/create-note flow succeeds when the token is scraped out of the form
+  first, the way a real browser submission would.
+
 ## Why three tools instead of one
 
 Each layer has a different blind spot: SAST reads source but can't see missing

@@ -2,6 +2,10 @@ import os
 import secrets
 
 from flask import Flask
+from flask_wtf import CSRFProtect
+
+csrf = CSRFProtect()
+
 
 def create_app():
     app = Flask(__name__)
@@ -13,6 +17,15 @@ def create_app():
     # hardcoded key that would be identical, and public, in every deployment.
     # See docs/vulnerabilities/05-hardcoded-secret-and-debug-mode.md.
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
+
+    # FIX (ZAP 10202 Absence of Anti-CSRF Tokens): every POST form now requires a valid,
+    # per-session CSRF token (see the templates), or Flask-WTF rejects the request with a 400.
+    csrf.init_app(app)
+
+    # FIX (ZAP 10054 Cookie without SameSite Attribute): the session cookie is only sent on
+    # same-site requests, which blocks it from being attached to a cross-site form submission
+    # or link in the first place.
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
     from . import config_loader
 
@@ -28,12 +41,18 @@ def create_app():
 
     @app.after_request
     def set_security_headers(response):
-        # FIX: caught by the DAST stage (OWASP ZAP baseline scan), not by SAST or SCA, which
-        # is exactly the kind of gap a live scan of the running app finds and a source-code
-        # scanner can't. See docs/ci-pipeline.md.
-        response.headers["X-Frame-Options"] = "DENY"  # ZAP 10020: Missing Anti-clickjacking Header
+        # FIX: every header below was caught by the DAST stage (OWASP ZAP baseline scan
+        # against the actually-running app), not by SAST or SCA, which is exactly the kind of
+        # gap a live scan finds and a source-code scanner can't. See docs/ci-pipeline.md.
+        response.headers["X-Frame-Options"] = "DENY"  # ZAP 10020
         response.headers["X-Content-Type-Options"] = "nosniff"  # ZAP 10021
+        response.headers["Content-Security-Policy"] = "default-src 'self'"  # ZAP 10038
+        response.headers["Permissions-Policy"] = (
+            "geolocation=(), camera=(), microphone=()"
+        )  # ZAP 10063
         response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"  # ZAP 90004
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"  # ZAP 90004
+        response.headers["Cache-Control"] = "no-store"  # ZAP 10049, this app is all private data
         response.headers["Server"] = "Werkzeug"  # ZAP 10036: don't leak the exact version
         return response
 

@@ -72,6 +72,7 @@ jobs:
           target: "http://localhost:5000/login"
           fail_action: true
           allow_issue_writing: false
+          rules_file_name: ".zap/rules.tsv"
 
       - name: Show app log on failure
         if: failure()
