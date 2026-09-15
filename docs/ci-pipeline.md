@@ -1,0 +1,87 @@
+# CI security pipeline
+
+`.github/workflows/security.yml` runs three jobs on every push and pull request:
+SAST, SCA, and DAST. All three block a pull request from merging if they fail.
+
+## SAST: Bandit + a small custom Semgrep ruleset
+
+Bandit catches three of this app's seven seeded bugs out of the box. Run against the
+vulnerable v1 code:
+
+```
+$ bandit -r . -x ./venv
+>> B105 hardcoded_password_string   app/__init__.py:5   (the SECRET_KEY literal)
+>> B506 yaml_load                   app/config_loader.py:12
+>> B608 hardcoded_sql_expressions   app/models.py:47
+```
+
+It does not catch the IDOR (business logic, not a syntax pattern), the plaintext
+password storage (there's no unsafe call to flag, just a hash call that's missing), the
+stored XSS (Jinja templates aren't in Bandit's scope), or `debug=True` in `run.py`.
+That last miss is worth a closer look: Bandit's `B201` check does flag `debug=True` when
+the `Flask(...)` constructor is visible in the same file, but this app uses the
+app-factory pattern (`app = create_app()` in a different module), and Bandit doesn't
+trace across files to know `app` is a Flask instance. A quick test confirms it:
+
+```python
+# flags: Flask() and .run(debug=True) in the same file
+from flask import Flask
+app = Flask(__name__)
+app.run(debug=True)          # Bandit: B201, High
+
+# does NOT flag: app comes from an imported factory function
+from app import create_app
+app = create_app()
+app.run(debug=True)          # Bandit: nothing
+```
+
+`security/semgrep-rules.yaml` is five rules written for this codebase specifically to
+close gaps like that one, plus catch the stored XSS that no Python-focused tool would
+ever see:
+
+- `flask-debug-true-any-receiver`: matches `$APP.run(..., debug=True, ...)` regardless
+  of where `$APP` came from, closing the exact gap above.
+- `sql-query-fstring-taint`: a taint-mode rule (source: any f-string/`.format`/`%`
+  string, sink: `.execute(...)`) so it catches the query even though it's built on one
+  line and executed on another, rather than requiring both in the same expression.
+- `unsafe-yaml-load`: flags `yaml.load()` unless it can see it's using a safe loader.
+- `hardcoded-flask-secret-key`: flags a literal string assigned to `SECRET_KEY` or
+  `app.config["SECRET_KEY"]`.
+- `jinja-unsafe-filter`: a regex rule scoped to `.html`/`.jinja` files that flags the
+  `| safe` filter, since Semgrep's structural Jinja matching didn't reliably bind an
+  expression like `note["content"] | safe` and a plain regex turned out to be the more
+  reliable tool for this one file type.
+
+Bandit and Semgrep together catch five of the seven seeded bugs. The remaining two
+(IDOR, plaintext passwords) are exactly the kind of thing SAST structurally can't see:
+missing authorization logic and a missing security control, not a dangerous pattern that
+is present. That gap is why this pipeline also has a DAST stage and why the project
+still needs a human reading the exploit writeups in `docs/vulnerabilities/`, not just a
+green CI check.
+
+## SCA: pip-audit
+
+`pip-audit -r requirements.txt` checks every pinned dependency against the Python
+Packaging Advisory Database. Run against v1's pins it found 12 distinct advisories
+across Flask and Werkzeug, only one of which I'd gone in already knowing about; see
+`docs/vulnerabilities/06-outdated-werkzeug-cve.md` for the full output and the versions
+that clear it.
+
+## DAST: OWASP ZAP baseline scan
+
+The `dast` job starts the app in the CI runner and points
+[`zaproxy/action-baseline`](https://github.com/zaproxy/action-baseline) at it. ZAP
+crawls the running app and passively checks the live HTTP traffic and responses (missing
+security headers, cookie flags, server banners, and similar), which is a useful
+complement to SAST precisely because it's exercising the real running app instead of
+reading source, and needs no knowledge of what the code looks like. It runs last
+(`needs: [sast, sca]`) since there's no point spinning up the app if the static checks
+already failed.
+
+## Why three tools instead of one
+
+Each layer has a different blind spot: SAST reads source but can't see missing
+authorization logic; SCA knows nothing about this app's own code, only what's declared
+in `requirements.txt`; DAST sees the running app's behavior but nothing about why the
+code produces it. Together they cover far more than any one of them alone, which is the
+actual argument for running all three on every pull request rather than picking one.

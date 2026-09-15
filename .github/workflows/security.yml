@@ -1,0 +1,77 @@
+name: Security pipeline
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  sast:
+    name: SAST (Bandit + Semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install SAST tools
+        run: pip install bandit semgrep
+
+      - name: Bandit
+        run: bandit -r . -x ./venv
+
+      - name: Semgrep (project-specific rules)
+        run: semgrep --config security/semgrep-rules.yaml --error --metrics=off .
+
+  sca:
+    name: SCA (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Audit dependencies
+        run: pip-audit -r requirements.txt
+
+  dast:
+    name: DAST (OWASP ZAP baseline)
+    runs-on: ubuntu-latest
+    needs: [sast, sca]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install app dependencies
+        run: pip install -r requirements.txt
+
+      - name: Start the app in the background
+        run: nohup python run.py > app.log 2>&1 &
+        env:
+          FLASK_DEBUG: "0"
+
+      - name: Wait for the app to come up
+        run: |
+          for i in $(seq 1 10); do
+            curl -sf http://localhost:5000/login && break
+            sleep 1
+          done
+
+      - name: ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: "http://localhost:5000/login"
+          fail_action: true
+
+      - name: Show app log on failure
+        if: failure()
+        run: cat app.log

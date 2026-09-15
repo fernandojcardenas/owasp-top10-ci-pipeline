@@ -1,0 +1,91 @@
+rules:
+  - id: flask-debug-true-any-receiver
+    languages: [python]
+    severity: ERROR
+    message: >
+      Flask app is run with debug=True. This exposes the interactive Werkzeug
+      debugger, which allows arbitrary code execution on any unhandled
+      exception. Bandit's B201 only catches this when the Flask() constructor
+      is visible in the same file; this rule also catches the common
+      app-factory pattern (app = create_app(); app.run(debug=True)).
+    metadata:
+      category: security
+      owasp: A05:2021 Security Misconfiguration
+      cwe: CWE-489
+    patterns:
+      - pattern: $APP.run(..., debug=True, ...)
+
+  - id: sql-query-fstring-taint
+    languages: [python]
+    severity: ERROR
+    mode: taint
+    message: >
+      A string built with an f-string/format/%-interpolation flows into a
+      database .execute() call. This is a SQL injection vector: use a
+      parameterized query (?) instead so user input can never change the
+      query's structure.
+    metadata:
+      category: security
+      owasp: A03:2021 Injection
+      cwe: CWE-89
+    pattern-sources:
+      - pattern-either:
+          - pattern: f"..."
+          - pattern: '"...".format(...)'
+          - pattern: '"..." % (...)'
+    pattern-sinks:
+      - pattern: $CONN.execute($QUERY)
+
+  - id: unsafe-yaml-load
+    languages: [python]
+    severity: ERROR
+    message: >
+      yaml.load() without restricting the Loader to a safe one can construct
+      arbitrary Python objects from the input, which allows code execution if
+      the YAML content is ever attacker-influenced. Use yaml.safe_load()
+      instead.
+    metadata:
+      category: security
+      owasp: A08:2021 Software and Data Integrity Failures
+      cwe: CWE-502
+    patterns:
+      - pattern-either:
+          - pattern: yaml.load($DATA)
+          - pattern: yaml.load($DATA, Loader=yaml.Loader)
+          - pattern: yaml.load($DATA, Loader=yaml.UnsafeLoader)
+          - pattern: yaml.load($DATA, Loader=yaml.FullLoader)
+
+  - id: hardcoded-flask-secret-key
+    languages: [python]
+    severity: WARNING
+    message: >
+      A Flask SECRET_KEY (or a variable that is assigned into
+      app.config["SECRET_KEY"]) is set to a hardcoded string literal. Anyone
+      who can read the source can forge signed session cookies. Load it from
+      an environment variable or a secrets manager instead.
+    metadata:
+      category: security
+      owasp: A05:2021 Security Misconfiguration
+      cwe: CWE-798
+    patterns:
+      - pattern-either:
+          - pattern: SECRET_KEY = "..."
+          - pattern: $APP.config["SECRET_KEY"] = "..."
+
+  - id: jinja-unsafe-filter
+    languages: [generic]
+    severity: ERROR
+    message: >
+      The Jinja2 "safe" filter disables automatic HTML escaping for this
+      value. If it ever contains user-controlled input, this is a stored or
+      reflected XSS vector.
+    metadata:
+      category: security
+      owasp: A03:2021 Injection
+      cwe: CWE-79
+    paths:
+      include:
+        - "*.html"
+        - "*.jinja"
+        - "*.jinja2"
+    pattern-regex: '\|\s*safe\b'

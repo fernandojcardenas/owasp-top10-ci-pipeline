@@ -1,4 +1,4 @@
-# Vulnerable and outdated component: Werkzeug 2.2.2
+# Vulnerable and outdated components: Flask and Werkzeug
 
 **OWASP category:** A06:2021 Vulnerable and Outdated Components
 **CWE:** CWE-1104 Use of Unmaintained Third Party Components
@@ -6,45 +6,66 @@
 
 ## The vulnerability
 
-`requirements.txt` pinned `Werkzeug==2.2.2`, which is affected by
-[CVE-2023-25577](https://github.com/pallets/werkzeug/security/advisories/GHSA-xg9f-g7g7-2323):
-Werkzeug's multipart/form-data parser did not cap the number of parts it would parse from
-a request. A request crafted with a very large number of form parts (including file
-parts) makes the server spend excessive CPU and memory parsing it, a denial-of-service
-vector that requires no authentication.
+`requirements.txt` pinned `Flask==2.2.2` and `Werkzeug==2.2.2`. Neither is a coding
+mistake in this app's own code; both are known-vulnerable versions of a pinned
+dependency, which is exactly what an SCA (software composition analysis) scanner is for.
+Running `pip-audit` against the v1 pins turned up far more than the one CVE I already
+knew about (CVE-2023-25577, an unbounded multipart form parser that enables a
+denial-of-service):
 
-This wasn't a coding mistake in this app's own code; it's a bug in a pinned dependency
-that shipped in the app's own `requirements.txt`, exactly the kind of issue an SCA
-(software composition analysis) scanner is meant to catch on every dependency bump, which
-is why it is called out here even though there is no app-specific line to point at.
+```
+$ pip-audit -r requirements.txt
+Found 22 known vulnerabilities in 2 packages
+Name     Version ID              Fix Versions
+-------- ------- --------------- ------------
+flask    2.2.2   PYSEC-2023-62   2.2.5,2.3.2
+flask    2.2.2   PYSEC-2026-2151 3.1.3
+werkzeug 2.2.2   PYSEC-2023-57   2.2.3
+werkzeug 2.2.2   PYSEC-2023-58   2.2.3
+werkzeug 2.2.2   PYSEC-2023-221  2.3.8,3.0.1
+werkzeug 2.2.2   PYSEC-2026-2043 3.0.3
+werkzeug 2.2.2   PYSEC-2026-2045 3.0.6
+werkzeug 2.2.2   PYSEC-2026-1860 3.0.6
+werkzeug 2.2.2   PYSEC-2026-2046 3.1.4
+werkzeug 2.2.2   PYSEC-2026-2044 3.1.5
+werkzeug 2.2.2   PYSEC-2026-2320 3.1.6
+werkzeug 2.2.2   PYSEC-2026-3417 3.0.6
+```
+
+(each id is listed twice by the tool; the distinct advisories are as shown). This is the
+real lesson SCA teaches that manual review doesn't: new advisories get filed against old
+pins on a rolling basis, so "I checked once" is not the same as "this is safe." A pin
+that was fine last quarter can be sitting on a disclosed vulnerability today with no
+change to the app's own code at all.
 
 ## Exploit
 
-I did not reproduce the denial-of-service live: doing so means sending a large,
-resource-exhausting request at a shared server, which isn't something to do even against
-a disposable local instance, and the value of catching it comes from dependency scanning,
-not from re-deriving the same known issue by hand. The vulnerability class is well
-documented in the advisory linked above, and the planned CI pipeline (`t1-7`/`t1-8`) will
-run `pip-audit` against `requirements.txt` specifically so this class of bug is caught
-automatically the moment a pinned version has a known CVE, rather than relying on manual
-review.
+I did not reproduce any of these live. Several are denial-of-service class bugs (crafted
+requests that make the server spend excessive CPU/memory), and re-deriving a known DoS
+against even a disposable local instance isn't worth the risk for the marginal value of
+proving a publicly-documented advisory is real. The value here is catching this
+automatically, which is exactly what the SCA job in `.github/workflows/security.yml`
+does, on this app and on every future dependency bump.
 
 ## Fix
 
-Bump the pin to the version where the advisory was patched:
+An initial, minimal fix (bumping only `Werkzeug` to `2.2.3`) closed the original CVE I
+knew about, but `pip-audit` showed that wasn't enough: 18 advisories remained even after
+that bump, because most of them were filed after 2.2.3. The actual fix moves onto
+currently-maintained release lines:
 
 ```
-Werkzeug==2.2.3
+Flask==3.1.3
+Werkzeug==3.1.6
 ```
+
+The full register/login/create-note/view-note flow was re-run against these versions
+with zero code changes required; Flask 3.x kept every API this app uses (blueprints,
+`session`, `render_template`, the app-factory pattern) unchanged.
 
 ## Verification
 
 ```
-$ pip install "Werkzeug==2.2.3"
-$ python -c "import werkzeug; print(werkzeug.__version__)"
-2.2.3
+$ pip-audit -r requirements.txt
+No known vulnerabilities found
 ```
-
-The full register/login/create-note/view-note flow was re-run against the upgraded
-dependency with no behavior change, confirming the bump is a drop-in fix at this app's
-current feature set.
