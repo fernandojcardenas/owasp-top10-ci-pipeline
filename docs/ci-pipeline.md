@@ -78,6 +78,11 @@ reading source, and needs no knowledge of what the code looks like. It runs last
 (`needs: [sast, sca]`) since there's no point spinning up the app if the static checks
 already failed.
 
+The pipeline actually failed four times in a row before it went green. This is the real
+run history from GitHub Actions, not a curated retelling:
+
+![CI pipeline run history, showing four failing runs followed by two passing runs](ci-screenshots/01-pipeline-run-history.jpg)
+
 The first real run of this pipeline on GitHub caught something neither Bandit nor
 Semgrep did, since neither one looks at HTTP responses at all:
 
@@ -197,12 +202,27 @@ code fix, and some need a documented, reviewed decision that they don't apply, r
 in the rules file so the next person (or the next run) doesn't have to re-litigate it
 from scratch.
 
+Here's that fourth run failing, with the job graph showing SAST and SCA passing while
+DAST fails, plus GitHub's own annotation of the ZAP error:
+
+![Run 4 job summary: SAST and SCA green, DAST red, with the ZAP failure annotation](ci-screenshots/02-run4-failure-summary.jpg)
+
+And the actual ZAP log for that run, showing the exact finding, `WARN-NEW: CSP: Failure
+to Define Directive with No Fallback [10055] x 3`, and the summary line the job's
+pass/fail decision is based on:
+
+![ZAP baseline scan log showing the WARN-NEW CSP 10055 finding and the fail summary line](ci-screenshots/03-run4-zap-finding.jpg)
+
 Adding `object-src`, `base-uri`, and `frame-ancestors` didn't fully clear rule 10055
 either; it kept firing on a single remaining gap. Reading ZAP's own scan rule source
 (`ContentSecurityPolicyScanRule.java`) rather than guessing again: the rule checks
 exactly two directives against this fallback issue, `frame-ancestors` and `form-action`,
 nothing else. I had the first but not the second, so the policy now also lists
 `form-action 'self'`. Fourth run, zero warnings.
+
+The very next run, triggered by that one-line fix, came back clean:
+
+![Run 5 job summary: SAST, SCA, and DAST all green](ci-screenshots/04-run5-passing.jpg)
 
 ## Why three tools instead of one
 
