@@ -41,6 +41,8 @@ password = 'whatever'`. The trailing `--` comments out the password check entire
 is always true, and `fetchone()` returns the first row in the table, alice, logging the
 attacker in as her with no valid credentials at all.
 
+![Terminal capture of the SQL injection login bypass against v1](../exploit-screenshots/10-sql-injection-before.png)
+
 A second, unrelated consequence of the same bug: a payload that doesn't close its quotes
 cleanly (e.g. a username of `o'brien`) produces malformed SQL and raises an unhandled
 `sqlite3.OperationalError`, which is a separate way this bug turns into a crash (see
@@ -82,6 +84,8 @@ $ curl -c attacker.txt -b attacker.txt \
 $ curl -c attacker.txt -b attacker.txt http://127.0.0.1:5000/notes
 < HTTP/1.1 302 FOUND   (redirected to /login, no session was ever created)
 ```
+
+![Terminal capture of the same payload against the fixed code: rejected, never authenticated](../exploit-screenshots/11-sql-injection-after.png)
 
 The same malformed-quote payload (`o'brien`) also no longer crashes the app; it is treated
 as a literal, non-matching username.
