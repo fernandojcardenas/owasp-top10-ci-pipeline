@@ -83,3 +83,4 @@ Then visit `http://127.0.0.1:5000/register` to create an account.
 ./venv/bin/semgrep --config security/semgrep-rules.yaml . --exclude venv
 ./venv/bin/pip-audit -r requirements.txt
 ```
+
